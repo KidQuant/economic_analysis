@@ -261,9 +261,9 @@ data = web.get_data_fred(
 )
 data.dropna(inplace=True)
 
-# The following data series aare only provided with daily frequences, hence we need to downsample them
+# The following data series are only provided with daily frequences, hence we need to downsample them
 # by taking their mean value over a given month and rounding to two decimal points (that's how values
-# in series with monthly frequencies aaare calculated)
+# in series with monthly frequencies are calculated)
 data2 = web.get_data_fred(["DGS1MO", "DGS3MO", "DGS6MO"], report_start, report_end)
 data2 = data2.resample("MS").mean().round(2)
 
@@ -276,13 +276,13 @@ data = data[
         "DGS1MO",
         "DGS3MO",
         "DGS6MO",
-        "FEDFUNDS",
         "GS1",
         "GS2",
         "GS3",
         "GS5",
         "GS7",
         "GS10",
+        "GS20",
         "GS30",
     ]
 ]
@@ -292,6 +292,7 @@ data.rename(
     columns={"DGS1MO": "GS1MO", "DGS3MO": "GS3MO", "DGS6MO": "GS6MO"}, inplace=True
 )
 
+# Converting to decimal fractions, i.e. 1% is 0.01
 data /= 100.0
 
 # Converting the Fed Funds Rate to actual/actual
@@ -301,34 +302,151 @@ leap_year_cond = data.FEDFUNDS.index.year % 4 == 0 & (
 data.FEDFUNDS[leap_year_cond] *= 366.0 / 360
 data.FEDFUNDS[np.invert(leap_year_cond)] *= 365.0 / 360
 
-# Convertinng all CMT Yields to APY
+# Converting all CMT Yields to APY
 data.iloc[:, 1:] = (data.iloc[:, 1:] / 2 + 1) ** 2 - 1
 
 data
 
 # %%
 
-# Inflation expectation as givenn by breakeven inflation rates
-data_infl_brk_even = web.get_data_fred(
+# Inflation expectations as given by breakeven inflation rates
+data_infl_brk_evn = web.get_data_fred(
     ["T5YIEM", "T7YIEM", "T10YIEM", "T20YIEM", "T30YIEM"], report_start, report_end
 )
-data_infl_brk_even.dropna(inplace=True)
+data_infl_brk_evn.dropna(inplace=True)
 
 cpi = fred_cpi_ffr[["Annual seasonaly adjusted CPI"]].loc["2012":]
 
-# Expected inflation as calculated by the Federal Reserve Bank of Cleveland based on Inflation swap data,
-# Treasury Yields, current CPI, Blue Chip forecast of CPI
+# Expected inflation as calculated by The Federal Reserve Bank of Cleveland based on Inflation swap data,
+# Treasury Yields, current CPI, Blue Chip forecast of CPI.
 data_infl = web.get_data_fred(
     ["EXPINF" + str(i) + "YR" for i in range(1, 31)], report_start, report_end
 ).shift(-1)
 
 # Converting to decimal fractions, i.e. 1% is 0.01
-data_infl_brk_even /= 100.0
+data_infl_brk_evn /= 100.0
 data_infl /= 100.0
 
 # Adding CPI and The Federal Reserve Bank of Cleveland 1 Year Inflation Expectation
 data_infl = pd.concat([cpi, data_infl], axis=1).dropna()
-data_infl_brk_even = pd.concat([cpi, data_infl_brk_even], axis=1)
+data_infl_brk_evn = pd.concat([cpi, data_infl_brk_evn], axis=1)
 
 # data_infl_brk_even.fillna(method='ffill', inplace=True
-data_infl_brk_even
+data_infl_brk_evn
+
+# %%
+
+date = data.index[-1].date()
+date_1_mth_ago = date + relativedelta(months=-1)
+date_1_year_ago = date + relativedelta(years=-1)
+date_2_years_ago = date + relativedelta(years=-2)
+date_5_years_ago = date + relativedelta(years=-5)
+date_10_years_ago = date + relativedelta(years=-10)
+
+offsets = [
+    relativedelta(),
+    relativedelta(months=+1),
+    relativedelta(months=+3),
+    relativedelta(months=+6),
+    relativedelta(years=+1),
+    relativedelta(years=+2),
+    relativedelta(years=+3),
+    relativedelta(years=+5),
+    relativedelta(years=+7),
+    relativedelta(years=+10),
+    relativedelta(years=+20),
+    relativedelta(years=+30),
+]
+
+# 30 datapoints for expected inflation data from The Federal Reserve Bank of Cleveland
+offsets_infl = [relativedelta(years=+i) for i in range(31)]
+
+# Unfortunately fewer curve points for US Inflation expectations
+offsets_infl_brk_evn = [
+    relativedelta(),
+    relativedelta(years=+5),
+    relativedelta(years=+7),
+    relativedelta(years=+10),
+    relativedelta(years=+20),
+    relativedelta(years=+30),
+]
+
+# Define US Treasury yield curves
+curve = curves.YieldCurve(date, offsets, data[date : date + BDay()].to_numpy()[0, :])
+curve_1_mth_ago = curves.YieldCurve(
+    date_1_mth_ago,
+    offsets,
+    data[date_1_mth_ago : date_1_mth_ago + BDay()].to_numpy()[0, :],
+)
+curve_1_year_ago = curves.YieldCurve(
+    date_1_year_ago,
+    offsets,
+    data[date_1_year_ago : date_1_year_ago + BDay()].to_numpy()[0, :],
+)
+curve_2_years_ago = curves.YieldCurve(
+    date_2_years_ago,
+    offsets,
+    data[date_2_years_ago : date_2_years_ago + BDay()].to_numpy()[0, :],
+)
+curve_5_years_ago = curves.YieldCurve(
+    date_5_years_ago,
+    offsets,
+    data[date_5_years_ago : date_5_years_ago + BDay()].to_numpy()[0, :],
+)
+curve_10_years_ago = curves.YieldCurve(
+    date_10_years_ago,
+    offsets,
+    data[date_10_years_ago : date_10_years_ago + BDay()].to_numpy()[0, :],
+)
+
+# Define US Expected Inflation curves
+curve_infl = curves.YieldCurve(
+    date, offsets_infl, data_infl[date : date + BDay()].to_numpy()[0, :]
+)
+curve_infl_1_mth_ago = curves.YieldCurve(
+    date_1_mth_ago,
+    offsets_infl,
+    data_infl[date_1_mth_ago : date_1_mth_ago + BDay()].to_numpy()[0, :],
+)
+curve_infl_1_year_ago = curves.YieldCurve(
+    date_1_year_ago,
+    offsets_infl,
+    data_infl[date_1_year_ago : date_1_year_ago + BDay()].to_numpy()[0, :],
+)
+curve_infl_2_years_ago = curves.YieldCurve(
+    date_2_years_ago,
+    offsets_infl,
+    data_infl[date_2_years_ago : date_2_years_ago + BDay()].to_numpy()[0, :],
+)
+curve_infl_5_years_ago = curves.YieldCurve(
+    date_5_years_ago,
+    offsets_infl,
+    data_infl[date_5_years_ago : date_5_years_ago + BDay()].to_numpy()[0, :],
+)
+
+# Define US Breakeven Inflation curves
+curve_infl_brk_evn = curves.YieldCurve(
+    date, offsets_infl_brk_evn, data_infl_brk_evn[date : date + BDay()].to_numpy()[0, :]
+)
+curve_infl_brk_evn_1_mth_ago = curves.YieldCurve(
+    date_1_mth_ago,
+    offsets_infl_brk_evn,
+    data_infl_brk_evn[date_1_mth_ago : date_1_mth_ago + BDay()].to_numpy()[0, :],
+)
+curve_infl_brk_evn_1_year_ago = curves.YieldCurve(
+    date_1_year_ago,
+    offsets_infl_brk_evn,
+    data_infl_brk_evn[date_1_year_ago : date_1_year_ago + BDay()].to_numpy()[0, :],
+)
+curve_infl_brk_evn_2_years_ago = curves.YieldCurve(
+    date_2_years_ago,
+    offsets_infl_brk_evn,
+    data_infl_brk_evn[date_2_years_ago : date_2_years_ago + BDay()].to_numpy()[0, :],
+)
+curve_infl_brk_evn_5_years_ago = curves.YieldCurve(
+    date_5_years_ago,
+    offsets_infl_brk_evn,
+    data_infl_brk_evn[date_5_years_ago : date_5_years_ago + BDay()].to_numpy()[0, :],
+)
+
+# %%
